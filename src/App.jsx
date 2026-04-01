@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { auth, googleProvider, db } from "./firebase";
-import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
+import { signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
 // ═══════════════════════════════════════════════════
@@ -101,15 +101,34 @@ function LoginScreen({ mob, onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Detect in-app browsers (Instagram, Facebook, TikTok, etc.)
+  const isInAppBrowser = () => {
+    const ua = navigator.userAgent || "";
+    return /FBAN|FBAV|Instagram|Line|Twitter|TikTok|Snapchat|WhatsApp/i.test(ua);
+  };
+
+  // Check for redirect result on mount (for in-app browser flow)
+  useEffect(() => {
+    getRedirectResult(auth).catch(() => {});
+  }, []);
+
   const handleGoogle = async () => {
     setLoading(true); setError("");
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (isInAppBrowser()) {
+        // In-app browsers can't do popups, use redirect
+        await signInWithRedirect(auth, googleProvider);
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
     } catch (e) {
       console.error(e);
       if (e.code === "auth/popup-closed-by-user") setError("Connexion annulée");
-      else if (e.code === "auth/popup-blocked") setError("Le popup a été bloqué. Autorisez les popups pour ce site.");
-      else setError("Erreur de connexion. Réessayez.");
+      else if (e.code === "auth/popup-blocked") {
+        // Fallback to redirect if popup is blocked
+        try { await signInWithRedirect(auth, googleProvider); } catch (e2) { setError("Erreur de connexion. Ouvrez ce lien dans Chrome ou Safari."); }
+      }
+      else setError("Ouvrez ce lien dans votre navigateur (Chrome/Safari) pour vous connecter.");
     }
     setLoading(false);
   };
@@ -132,6 +151,10 @@ function LoginScreen({ mob, onLogin }) {
         </button>
 
         {error && <p style={{color:"#E74C3C",fontSize:12,marginTop:12}}>{error}</p>}
+
+        {isInAppBrowser() && <p style={{color:"#F39C12",fontSize:11,marginTop:12,lineHeight:1.4}}>
+          💡 Pour une meilleure expérience, ouvrez ce lien dans Chrome ou Safari (appuyez sur ⋯ puis "Ouvrir dans le navigateur")
+        </p>}
 
         <div style={{marginTop:32,padding:"16px 0",borderTop:"1px solid #21262d"}}>
           <p style={{color:"#8b949e66",fontSize:10,margin:0}}>🔒 Vos données sont privées et sécurisées</p>
